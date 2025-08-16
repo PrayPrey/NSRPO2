@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__task-master-ai__get_tasks",
+      "mcp__task-master-ai__get_task",
+      "Bash(python -m pytest tests/test_nspo2_config.py -v)",
+      "Bash(pip install:*)",
+      "mcp__task-master-ai__set_task_status",
+      "Bash(python -m pytest tests/test_covariance.py -v)",
+      "Bash(python -m pytest tests/test_covariance.py::TestCovEstimator::test_full_covariance_update -v)",
+      "Bash(python -m pytest tests/ -v)",
+      "Bash(python -m pytest tests/test_eigensolvers.py -v)",
+      "Bash(python -m pytest tests/test_strategies.py -v)",
+      "Bash(python:*)",
+      "Bash(git init:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "task-master-ai"
+  ]
+}

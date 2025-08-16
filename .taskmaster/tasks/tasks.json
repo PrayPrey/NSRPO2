@@ -1,0 +1,386 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Implement Core NSPO2 Configuration and Base Classes",
+        "description": "Create the foundational configuration and base classes for the NSPO2 module, including the TypedDict configuration class and the main NSPO2 class with essential methods.",
+        "details": "1. Create `NSPO2Config` TypedDict with all required parameters as specified in the PRD:\n   - dim: int (feature/gradient dimension)\n   - strategy: Literal['noise', 'hybrid', 'keep']\n   - projection_rank: int (default 16)\n   - update_freq: int (update eigenvectors every k steps)\n   - trust_radius: float (‖Pg-g‖ upper bound)\n   - target_bias: float (bias estimation upper bound)\n   - max_rank: int (default 32)\n   - min_rank: int (default 0)\n   - epsilon: float (numerical stability term)\n   - seed: int\n\n2. Implement the main `NSPO2` class with the following methods:\n   - `__init__(self, cfg: NSPO2Config)`: Initialize with configuration\n   - `hook(self, grad: torch.Tensor) -> torch.Tensor`: Transform gradient g to Pg\n   - `step_end(self, metrics: Dict[str, float]) -> None`: Update history\n   - `state_dict(self) -> Dict`: Save state\n   - `load_state_dict(self, sd: Dict) -> None`: Load state\n\n3. Implement basic validation for configuration parameters\n\n4. Set up the module structure according to the architecture in section 7.",
+        "testStrategy": "1. Unit test the NSPO2Config validation with valid and invalid configurations\n2. Test initialization of NSPO2 class with various configurations\n3. Verify state_dict and load_state_dict functionality with mock data\n4. Test basic hook functionality with identity transformation (before implementing actual projection)\n5. Verify the module imports correctly and has the expected public API",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Implement Covariance Estimation Module",
+        "description": "Create the CovEstimator component that calculates and maintains the covariance matrix of gradients using streaming EMA/EWMA estimation with shrinkage for numerical stability.",
+        "details": "1. Implement `CovEstimator` class with the following functionality:\n   - Streaming update of covariance matrix using Exponential Moving Average (EMA) or Exponentially Weighted Moving Average (EWMA)\n   - Support for shrinkage regularization: Σ_λ = (1-λ)Σ̂ + λ·diag(Σ̂)\n   - Numerical stability with epsilon parameter\n   - Methods:\n     - `update(grad: torch.Tensor) -> None`: Update covariance estimate with new gradient\n     - `get_covariance() -> torch.Tensor`: Return current covariance matrix\n     - `reset() -> None`: Reset the estimator state\n\n2. Implement memory-efficient updates that avoid materializing the full covariance matrix when possible\n\n3. Add support for different covariance estimation strategies (full, diagonal, low-rank)\n\n4. Include proper handling of edge cases (first update, numerical instability)\n\nCode example:\n```python\nclass CovEstimator:\n    def __init__(self, dim: int, decay: float = 0.99, shrinkage: float = 0.01, epsilon: float = 1e-6):\n        self.dim = dim\n        self.decay = decay\n        self.shrinkage = shrinkage\n        self.epsilon = epsilon\n        self.mean = torch.zeros(dim)\n        self.cov = torch.zeros((dim, dim))\n        self.n_updates = 0\n        \n    def update(self, grad: torch.Tensor) -> None:\n        # Update mean and covariance with new gradient\n        # Apply shrinkage regularization\n        pass\n        \n    def get_covariance(self) -> torch.Tensor:\n        # Return regularized covariance matrix\n        pass\n```",
+        "testStrategy": "1. Unit test with synthetic gradients with known covariance structure\n2. Verify EMA/EWMA updates match expected values for simple cases\n3. Test shrinkage regularization effect on condition number\n4. Benchmark memory usage and computation time for different dimensions\n5. Test numerical stability with ill-conditioned inputs\n6. Verify covariance matrix is positive semi-definite\n7. Test edge cases: first update, zero gradients, etc.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Implement Eigenvalue Solver and Projection Matrix Builder",
+        "description": "Create the EigSolver component that efficiently computes top-k eigenvectors of the covariance matrix and the ProjectionHead that constructs and applies the projection matrix P = I - K(K^T K)^(-1)K^T.",
+        "details": "1. Implement `EigSolver` class:\n   - Support for exact eigendecomposition for small dimensions\n   - Randomized power iteration for large dimensions (top-k approximation)\n   - Methods:\n     - `solve(cov: torch.Tensor, k: int) -> Tuple[torch.Tensor, torch.Tensor]`: Compute top-k eigenvalues and eigenvectors\n     - `update(cov: torch.Tensor, k: int) -> None`: Update internal state with new eigendecomposition\n\n2. Implement `ProjectionHead` class:\n   - Construction of projection matrix P = I - K(K^T K)^(-1)K^T\n   - Gram-Schmidt orthonormalization for numerical stability\n   - Methods:\n     - `build_projection(eigenvectors: torch.Tensor) -> None`: Construct projection matrix from eigenvectors\n     - `project(grad: torch.Tensor) -> torch.Tensor`: Apply projection to gradient\n     - `get_projection_matrix() -> torch.Tensor`: Return current projection matrix\n\n3. Implement efficient matrix-vector product for large dimensions (avoid materializing full P)\n\n4. Add condition number monitoring and regularization\n\nCode example:\n```python\nclass EigSolver:\n    def __init__(self, dim: int, use_randomized: bool = False, n_power_iterations: int = 2):\n        self.dim = dim\n        self.use_randomized = use_randomized\n        self.n_power_iterations = n_power_iterations\n        self.eigenvalues = None\n        self.eigenvectors = None\n        \n    def solve(self, cov: torch.Tensor, k: int) -> Tuple[torch.Tensor, torch.Tensor]:\n        # Compute top-k eigenvalues and eigenvectors\n        # Use randomized method for large dimensions\n        pass\n\nclass ProjectionHead:\n    def __init__(self, dim: int, epsilon: float = 1e-6):\n        self.dim = dim\n        self.epsilon = epsilon\n        self.projection = None\n        \n    def build_projection(self, eigenvectors: torch.Tensor) -> None:\n        # Orthonormalize eigenvectors\n        # Construct P = I - K(K^T K)^(-1)K^T\n        pass\n        \n    def project(self, grad: torch.Tensor) -> torch.Tensor:\n        # Apply projection: Pg\n        pass\n```",
+        "testStrategy": "1. Test eigendecomposition with synthetic covariance matrices with known eigenstructure\n2. Verify randomized power iteration accuracy against exact solution for moderate dimensions\n3. Test orthonormalization with ill-conditioned inputs\n4. Verify projection preserves vector norm for directions not in the null space\n5. Test that projection removes components in the specified directions\n6. Benchmark performance for different dimensions and ranks\n7. Verify numerical stability with edge cases (nearly singular matrices)",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Exact Eigendecomposition for Small Dimensions",
+            "description": "Implement the exact eigendecomposition method in the EigSolver class for small-dimensional covariance matrices using PyTorch's built-in eigendecomposition functions.",
+            "dependencies": [],
+            "details": "- Implement the `solve` method for exact eigendecomposition using `torch.linalg.eigh`\n- Add dimension threshold detection to determine when to use exact method\n- Ensure proper sorting of eigenvalues (descending) and corresponding eigenvectors\n- Implement eigenvalue filtering to select only top-k values\n- Add basic error handling for non-symmetric matrices\n- Implement unit tests with known eigenstructures",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Randomized Power Iteration for Large Dimensions",
+            "description": "Develop the randomized power iteration algorithm for approximating top-k eigenvectors of large-dimensional covariance matrices with efficient memory usage.",
+            "dependencies": [
+              "3.1"
+            ],
+            "details": "- Implement randomized power iteration algorithm for large matrices\n- Add configurable number of power iterations parameter\n- Create random initialization with proper seeding\n- Implement QR decomposition for orthogonalization during iterations\n- Add early stopping criteria based on convergence\n- Optimize memory usage for large dimensions\n- Implement accuracy tests comparing to exact solutions",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Projection Matrix Construction with Numerical Stability",
+            "description": "Develop the ProjectionHead class that constructs the projection matrix P = I - K(K^T K)^(-1)K^T with Gram-Schmidt orthonormalization for numerical stability.",
+            "dependencies": [
+              "3.1",
+              "3.2"
+            ],
+            "details": "- Implement `build_projection` method to construct projection matrix\n- Add Gram-Schmidt orthonormalization for numerical stability\n- Implement matrix inversion with regularization for (K^T K)\n- Add epsilon parameter for numerical stability\n- Implement condition number checking\n- Create helper methods for orthonormalization\n- Add tests for ill-conditioned inputs",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Efficient Matrix-Vector Product for Large Dimensions",
+            "description": "Optimize the projection operation by implementing efficient matrix-vector product that avoids materializing the full projection matrix for large dimensions.",
+            "dependencies": [
+              "3.3"
+            ],
+            "details": "- Implement `project` method using efficient matrix-vector operations\n- Add logic to avoid materializing full projection matrix\n- Implement the projection as P·g = g - K(K^T K)^(-1)K^T·g with intermediate steps\n- Add caching of intermediate results where beneficial\n- Implement batched projection for multiple gradients\n- Add performance benchmarks for different dimensions\n- Create tests comparing direct vs. efficient implementation",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Condition Number Monitoring and Regularization",
+            "description": "Add functionality to monitor the condition number of matrices during eigendecomposition and projection, with automatic regularization to ensure numerical stability.",
+            "dependencies": [
+              "3.1",
+              "3.2",
+              "3.3",
+              "3.4"
+            ],
+            "details": "- Implement condition number calculation for covariance and (K^T K) matrices\n- Add adaptive regularization based on condition number thresholds\n- Implement Tikhonov regularization for ill-conditioned matrices\n- Add warning system for potentially unstable operations\n- Create logging for condition number tracking\n- Implement fallback mechanisms for numerical failures\n- Add tests with artificially ill-conditioned matrices",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Implement Strategy Selection Module",
+        "description": "Create the Strategy module that implements the three projection strategies (Noise-Aware, Knowledge-Preserving, Hybrid) and handles the masking of eigenvectors based on the selected strategy.",
+        "details": "1. Implement `Strategy` abstract base class with common interface:\n   - `apply(eigenvectors: torch.Tensor, eigenvalues: torch.Tensor, rank: int, reference_direction: Optional[torch.Tensor] = None) -> torch.Tensor`\n\n2. Implement concrete strategy classes:\n   - `NoiseAwareStrategy`: Removes top-r eigenvectors (highest variance directions)\n   - `KnowledgePreservingStrategy`: Preserves important directions (reference direction) while removing noise\n   - `HybridStrategy`: Splits rank between noise removal and knowledge preservation\n\n3. Implement `StrategyFactory` for creating strategy instances based on configuration\n\n4. Add support for reference direction tracking (e.g., average gradient, performance contribution vector)\n\nCode example:\n```python\nfrom abc import ABC, abstractmethod\n\nclass Strategy(ABC):\n    @abstractmethod\n    def apply(self, eigenvectors: torch.Tensor, eigenvalues: torch.Tensor, \n              rank: int, reference_direction: Optional[torch.Tensor] = None) -> torch.Tensor:\n        \"\"\"Apply strategy to select/mask eigenvectors\"\"\"\n        pass\n\nclass NoiseAwareStrategy(Strategy):\n    def apply(self, eigenvectors: torch.Tensor, eigenvalues: torch.Tensor, \n              rank: int, reference_direction: Optional[torch.Tensor] = None) -> torch.Tensor:\n        # Return top-r eigenvectors (highest variance directions)\n        return eigenvectors[:, :rank]\n\nclass KnowledgePreservingStrategy(Strategy):\n    def apply(self, eigenvectors: torch.Tensor, eigenvalues: torch.Tensor, \n              rank: int, reference_direction: Optional[torch.Tensor] = None) -> torch.Tensor:\n        # Preserve reference direction while removing noise\n        # Implementation details...\n        pass\n\nclass HybridStrategy(Strategy):\n    def apply(self, eigenvectors: torch.Tensor, eigenvalues: torch.Tensor, \n              rank: int, reference_direction: Optional[torch.Tensor] = None) -> torch.Tensor:\n        # Split rank between noise removal and knowledge preservation\n        # Implementation details...\n        pass\n\nclass StrategyFactory:\n    @staticmethod\n    def create(strategy_name: str) -> Strategy:\n        if strategy_name == 'noise':\n            return NoiseAwareStrategy()\n        elif strategy_name == 'keep':\n            return KnowledgePreservingStrategy()\n        elif strategy_name == 'hybrid':\n            return HybridStrategy()\n        else:\n            raise ValueError(f\"Unknown strategy: {strategy_name}\")\n```",
+        "testStrategy": "1. Unit test each strategy with synthetic eigenvectors and eigenvalues\n2. Verify NoiseAwareStrategy removes top-r eigenvectors\n3. Test KnowledgePreservingStrategy preserves reference direction\n4. Verify HybridStrategy correctly splits rank between approaches\n5. Test with edge cases: rank=0, rank=dim, null reference direction\n6. Verify StrategyFactory creates correct strategy instances\n7. Integration test with ProjectionHead to ensure correct projection behavior",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Implement Adaptive Rank Selection",
+        "description": "Create the AdaptiveRank module that automatically selects the optimal projection rank based on variance reduction, bias estimation, and validation metrics to maximize the objective function J(r) = Var_red(r) - γ·Bias(r) subject to bias constraints.",
+        "details": "1. Implement `AdaptiveRank` class with the following functionality:\n   - Track history of variance reduction and bias estimates for different ranks\n   - Implement objective function J(r) = Var_red(r) - γ·Bias(r)\n   - Apply constraint Bias(r) ≤ target_bias\n   - Methods:\n     - `update(variance_reduction: Dict[int, float], bias_estimates: Dict[int, float], validation_metrics: Optional[Dict[str, float]] = None) -> None`\n     - `select_rank() -> int`: Select optimal rank based on objective and constraints\n     - `get_rank_history() -> List[int]`: Return history of selected ranks\n\n2. Implement bias estimation methods:\n   - Cosine similarity between original and projected gradients\n   - Alignment with reference directions\n   - Proxy metrics from validation\n\n3. Add exploration mechanism to try different ranks periodically\n\n4. Implement rank adjustment rules based on sentinel signals\n\nCode example:\n```python\nclass AdaptiveRank:\n    def __init__(self, min_rank: int = 0, max_rank: int = 32, \n                 target_bias: float = 0.05, gamma: float = 1.0,\n                 history_window: int = 50):\n        self.min_rank = min_rank\n        self.max_rank = max_rank\n        self.target_bias = target_bias\n        self.gamma = gamma\n        self.history_window = history_window\n        self.variance_history = []\n        self.bias_history = []\n        self.rank_history = []\n        self.current_rank = max(min_rank, max_rank // 2)  # Start in the middle\n        \n    def update(self, variance_reduction: Dict[int, float], \n               bias_estimates: Dict[int, float],\n               validation_metrics: Optional[Dict[str, float]] = None) -> None:\n        # Update histories with new data\n        # Trim histories to window size\n        pass\n        \n    def select_rank(self) -> int:\n        # Calculate objective J(r) for each candidate rank\n        # Apply constraint Bias(r) ≤ target_bias\n        # Return optimal rank\n        pass\n        \n    def estimate_bias(self, original_grad: torch.Tensor, projected_grad: torch.Tensor,\n                      reference_direction: Optional[torch.Tensor] = None) -> float:\n        # Estimate bias using cosine similarity or other metrics\n        pass\n```",
+        "testStrategy": "1. Test objective function calculation with synthetic variance and bias data\n2. Verify constraint enforcement with various target_bias values\n3. Test rank selection with mock history data\n4. Verify bias estimation methods with controlled gradient pairs\n5. Test exploration mechanism ensures all ranks are tried\n6. Verify rank adjustment responds correctly to sentinel signals\n7. Integration test with NSPO2 engine to ensure rank adapts as expected during training",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3,
+          4
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement History Tracking for Variance and Bias",
+            "description": "Implement the core functionality to track and manage history of variance reduction and bias estimates for different ranks in the AdaptiveRank class.",
+            "dependencies": [],
+            "details": "- Create data structures to store variance_history, bias_history, and rank_history\n- Implement the update() method to record new variance reduction and bias estimates\n- Add functionality to trim histories to the specified window size\n- Implement get_rank_history() method to return history of selected ranks\n- Add support for optional validation metrics tracking\n- Ensure thread-safety for history updates\n- Implement proper initialization in the constructor",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Objective Function with Constraints",
+            "description": "Create the objective function J(r) = Var_red(r) - γ·Bias(r) with constraint enforcement to ensure Bias(r) ≤ target_bias.",
+            "dependencies": [
+              "5.1"
+            ],
+            "details": "- Implement calculation of objective function J(r) for each candidate rank\n- Create constraint checking mechanism for Bias(r) ≤ target_bias\n- Add support for the gamma parameter to control the bias-variance tradeoff\n- Implement fallback logic when no rank satisfies the constraint\n- Add logging for objective function values and constraint satisfaction\n- Create helper methods for objective calculation and constraint checking\n- Ensure numerical stability in calculations",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Bias Estimation Methods",
+            "description": "Develop multiple bias estimation methods including cosine similarity, alignment with reference directions, and proxy metrics from validation.",
+            "dependencies": [
+              "5.1"
+            ],
+            "details": "- Implement cosine similarity calculation between original and projected gradients\n- Create method for alignment measurement with reference directions\n- Develop proxy metrics calculation from validation data\n- Add normalization for different bias metrics to ensure comparable scales\n- Implement weighted combination of multiple bias metrics\n- Create utility functions for vector operations needed in bias calculations\n- Add documentation for each bias estimation method",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Rank Selection Algorithm",
+            "description": "Create the select_rank() method that determines the optimal rank based on the objective function, constraints, and historical data.",
+            "dependencies": [
+              "5.1",
+              "5.2",
+              "5.3"
+            ],
+            "details": "- Implement the select_rank() method to find optimal rank\n- Create logic to evaluate all candidate ranks within min_rank and max_rank\n- Add filtering of ranks based on constraint satisfaction\n- Implement selection of rank with highest objective value among valid candidates\n- Add fallback mechanism when no rank satisfies constraints\n- Create smoothing mechanism to prevent rapid rank oscillations\n- Implement logging of rank selection decisions and reasoning",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Exploration Mechanism",
+            "description": "Create an exploration mechanism that periodically tries different ranks to gather more information about their performance.",
+            "dependencies": [
+              "5.1",
+              "5.4"
+            ],
+            "details": "- Implement epsilon-greedy exploration strategy for rank selection\n- Add scheduled exploration rate decay over time\n- Create periodic forced exploration of ranks with limited historical data\n- Implement Thompson sampling alternative for more sophisticated exploration\n- Add exploration budget management to limit exploration in critical phases\n- Create tracking of exploration vs exploitation decisions\n- Implement adaptive exploration based on uncertainty in performance estimates",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Implement Trust Region NSPO",
+        "description": "Create the TrustRegion module that ensures the projected gradient doesn't deviate too much from the original gradient by implementing a mixing update g' = α·Pg + (1-α)·g when the distance ‖Pg-g‖ exceeds the trust radius.",
+        "details": "1. Implement `TrustRegion` class with the following functionality:\n   - Calculate distance between original and projected gradients\n   - Determine if distance exceeds trust radius\n   - Compute mixing coefficient α\n   - Apply mixed update when necessary\n   - Methods:\n     - `apply(original_grad: torch.Tensor, projected_grad: torch.Tensor, trust_radius: float) -> torch.Tensor`\n     - `get_mixing_coefficient(distance: float, trust_radius: float) -> float`\n     - `get_last_distance() -> float`: Return last calculated distance\n     - `get_last_alpha() -> float`: Return last used mixing coefficient\n\n2. Implement adaptive trust radius based on recent history\n\n3. Add different distance metrics (L2 norm, cosine distance)\n\n4. Implement smooth transition between original and projected gradients\n\nCode example:\n```python\nclass TrustRegion:\n    def __init__(self, initial_alpha: float = 0.5, min_alpha: float = 0.1, max_alpha: float = 1.0):\n        self.initial_alpha = initial_alpha\n        self.min_alpha = min_alpha\n        self.max_alpha = max_alpha\n        self.last_distance = 0.0\n        self.last_alpha = 1.0\n        \n    def apply(self, original_grad: torch.Tensor, projected_grad: torch.Tensor, \n              trust_radius: float) -> torch.Tensor:\n        # Calculate distance between original and projected gradients\n        distance = torch.norm(projected_grad - original_grad)\n        self.last_distance = distance.item()\n        \n        # Check if distance exceeds trust radius\n        if distance > trust_radius:\n            # Compute mixing coefficient\n            alpha = self.get_mixing_coefficient(distance.item(), trust_radius)\n            self.last_alpha = alpha\n            \n            # Apply mixed update\n            return alpha * projected_grad + (1 - alpha) * original_grad\n        else:\n            self.last_alpha = 1.0\n            return projected_grad\n        \n    def get_mixing_coefficient(self, distance: float, trust_radius: float) -> float:\n        # Simple linear scaling based on distance/trust_radius ratio\n        ratio = trust_radius / max(distance, 1e-10)\n        alpha = min(max(ratio, self.min_alpha), self.max_alpha)\n        return alpha\n```",
+        "testStrategy": "1. Test distance calculation with various gradient pairs\n2. Verify mixing coefficient calculation for different distance/radius ratios\n3. Test mixed update with controlled inputs\n4. Verify behavior at edge cases: zero distance, very large distance\n5. Test adaptive trust radius adjustment\n6. Benchmark performance impact of trust region application\n7. Integration test with NSPO2 engine to ensure trust region prevents excessive deviation",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Implement Bias Sentinel",
+        "description": "Create the BiasSentinel module that monitors bias indicators, validation metrics, and eigenvalue spectrum changes to detect potential issues and trigger automatic fallback mechanisms (rank reduction, strategy switching, or NSPO deactivation).",
+        "details": "1. Implement `BiasSentinel` class with the following functionality:\n   - Monitor bias indicators (cosine alignment, validation metrics)\n   - Track eigenvalue spectrum changes\n   - Implement multi-level alert system\n   - Trigger appropriate fallback actions\n   - Methods:\n     - `update(original_grad: torch.Tensor, projected_grad: torch.Tensor, eigenvalues: torch.Tensor, validation_metrics: Optional[Dict[str, float]] = None) -> None`\n     - `check_alerts() -> List[str]`: Return active alerts\n     - `get_fallback_action() -> Optional[str]`: Return recommended fallback action\n     - `reset_alerts() -> None`: Clear alert state\n\n2. Implement alert levels:\n   - Level 1: Warning (log only)\n   - Level 2: Rank reduction\n   - Level 3: Strategy switching\n   - Level 4: NSPO deactivation (fallback to GRPO)\n\n3. Implement alert conditions:\n   - Cosine similarity below threshold\n   - Validation reward decline\n   - Rapid eigenvalue spectrum changes\n   - Excessive rank increases\n\n4. Add notification system for alerts (logging, callbacks)\n\nCode example:\n```python\nclass BiasSentinel:\n    def __init__(self, cosine_threshold: float = 0.9, \n                 reward_decline_threshold: float = 0.05,\n                 eigenvalue_change_threshold: float = 0.2,\n                 history_window: int = 50):\n        self.cosine_threshold = cosine_threshold\n        self.reward_decline_threshold = reward_decline_threshold\n        self.eigenvalue_change_threshold = eigenvalue_change_threshold\n        self.history_window = history_window\n        self.cosine_history = []\n        self.reward_history = []\n        self.eigenvalue_history = []\n        self.alerts = []\n        \n    def update(self, original_grad: torch.Tensor, projected_grad: torch.Tensor,\n               eigenvalues: torch.Tensor, \n               validation_metrics: Optional[Dict[str, float]] = None) -> None:\n        # Calculate cosine similarity\n        cosine = torch.nn.functional.cosine_similarity(\n            original_grad.view(1, -1), projected_grad.view(1, -1)\n        ).item()\n        \n        # Update histories\n        self.cosine_history.append(cosine)\n        if len(self.cosine_history) > self.history_window:\n            self.cosine_history.pop(0)\n            \n        if validation_metrics and 'reward' in validation_metrics:\n            self.reward_history.append(validation_metrics['reward'])\n            if len(self.reward_history) > self.history_window:\n                self.reward_history.pop(0)\n                \n        # Store top eigenvalues\n        self.eigenvalue_history.append(eigenvalues[:10].detach().cpu().numpy())\n        if len(self.eigenvalue_history) > self.history_window:\n            self.eigenvalue_history.pop(0)\n            \n        # Check for alert conditions\n        self._check_cosine_alignment()\n        self._check_reward_decline()\n        self._check_eigenvalue_changes()\n        \n    def _check_cosine_alignment(self) -> None:\n        # Check if cosine similarity is below threshold\n        pass\n        \n    def _check_reward_decline(self) -> None:\n        # Check if validation reward is declining\n        pass\n        \n    def _check_eigenvalue_changes(self) -> None:\n        # Check for rapid changes in eigenvalue spectrum\n        pass\n        \n    def check_alerts(self) -> List[str]:\n        return self.alerts\n        \n    def get_fallback_action(self) -> Optional[str]:\n        # Determine appropriate fallback action based on alerts\n        pass\n```",
+        "testStrategy": "1. Test cosine similarity calculation with controlled gradient pairs\n2. Verify alert triggering with synthetic history data\n3. Test multi-level alert system with various thresholds\n4. Verify fallback action determination logic\n5. Test eigenvalue spectrum change detection\n6. Verify notification system works as expected\n7. Integration test with NSPO2 engine to ensure sentinel triggers appropriate actions",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Core Monitoring Functionality",
+            "description": "Develop the core functionality of the BiasSentinel class to track and store bias indicators including cosine similarity, validation metrics, and eigenvalue spectrum changes.",
+            "dependencies": [],
+            "details": "- Implement the BiasSentinel class constructor with configurable thresholds\n- Create data structures for storing historical values (cosine_history, reward_history, eigenvalue_history)\n- Implement the update() method to calculate cosine similarity between original and projected gradients\n- Add functionality to track validation metrics over time\n- Implement eigenvalue spectrum tracking with appropriate normalization\n- Add helper methods for accessing and analyzing historical data",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Alert Level System",
+            "description": "Create the multi-level alert system with four distinct severity levels and the logic to determine which level should be activated based on detected conditions.",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "- Define the four alert levels (Warning, Rank Reduction, Strategy Switching, NSPO Deactivation)\n- Implement alert state management and storage\n- Create methods to set and clear alerts\n- Implement the check_alerts() method to return active alerts\n- Add alert severity ranking logic\n- Implement alert persistence and timeout functionality\n- Create alert history tracking for debugging purposes",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Implement Alert Condition Detection Algorithms",
+            "description": "Develop the algorithms to detect various alert conditions based on the monitored metrics and historical data.",
+            "dependencies": [
+              "7.1",
+              "7.2"
+            ],
+            "details": "- Implement _check_cosine_alignment() to detect when cosine similarity falls below threshold\n- Create _check_reward_decline() to monitor validation reward trends\n- Implement _check_eigenvalue_changes() to detect rapid changes in eigenvalue spectrum\n- Add detection for excessive rank increases\n- Implement smoothing and outlier rejection for more robust detection\n- Create configurable sensitivity parameters for each detection algorithm\n- Add methods to calculate statistical significance of detected changes",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Implement Fallback Action Determination Logic",
+            "description": "Create the logic to determine appropriate fallback actions based on the current alert levels and system state.",
+            "dependencies": [
+              "7.2",
+              "7.3"
+            ],
+            "details": "- Implement get_fallback_action() method to recommend appropriate actions\n- Create mapping between alert levels and fallback actions\n- Implement logic to determine optimal rank reduction amount\n- Add strategy switching recommendation logic\n- Implement NSPO deactivation conditions\n- Create hysteresis mechanism to prevent rapid switching between actions\n- Add context-aware action selection based on training phase",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Notification and Logging System",
+            "description": "Create a comprehensive notification and logging system for alerts and fallback actions to aid in debugging and monitoring.",
+            "dependencies": [
+              "7.2",
+              "7.4"
+            ],
+            "details": "- Implement logging for all alert levels with appropriate severity\n- Create callback mechanism for external notification\n- Add detailed diagnostic information to alert messages\n- Implement alert summarization for periodic reporting\n- Create visualization helpers for alert history\n- Add performance impact tracking for fallback actions\n- Implement configurable verbosity levels for notifications",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "Implement Variance Tracker and Visualization",
+        "description": "Create the VarianceTracker module that records and visualizes metrics related to variance reduction, eigenvalue spectrum, convergence curves, and bias estimates over time to provide insights into NSPO2 performance.",
+        "details": "1. Implement `VarianceTracker` class with the following functionality:\n   - Track original and projected gradient variance\n   - Calculate variance reduction percentage\n   - Record eigenvalue spectrum evolution\n   - Track convergence metrics\n   - Methods:\n     - `update(original_grad: torch.Tensor, projected_grad: torch.Tensor, eigenvalues: torch.Tensor, metrics: Dict[str, float]) -> None`\n     - `get_metrics() -> Dict[str, float]`: Return current metrics\n     - `get_history() -> Dict[str, List[float]]`: Return metric history\n     - `plot_variance_reduction(save_path: Optional[str] = None) -> None`: Generate variance reduction plot\n     - `plot_eigenvalue_spectrum(save_path: Optional[str] = None) -> None`: Generate eigenvalue spectrum plot\n     - `plot_convergence(save_path: Optional[str] = None) -> None`: Generate convergence plot\n     - `export_csv(save_path: str) -> None`: Export metrics to CSV\n\n2. Implement visualization functions for:\n   - Variance reduction over time\n   - Eigenvalue spectrum evolution\n   - Convergence comparison (NSPO2 vs GRPO)\n   - Bias proxy timeline\n\n3. Add automatic artifact saving to experiment folder\n\n4. Implement dashboard generation for experiment summary\n\nCode example:\n```python\nclass VarianceTracker:\n    def __init__(self, log_dir: str, experiment_name: str):\n        self.log_dir = log_dir\n        self.experiment_name = experiment_name\n        os.makedirs(os.path.join(log_dir, experiment_name), exist_ok=True)\n        \n        self.step = 0\n        self.metrics = {\n            'orig_var': [],\n            'proj_var': [],\n            'var_reduction': [],\n            'eigenvalues': [],\n            'cosine_similarity': [],\n            'trust_region_alpha': [],\n            'rank': [],\n            'loss': [],\n            'reward': []\n        }\n        \n    def update(self, original_grad: torch.Tensor, projected_grad: torch.Tensor,\n               eigenvalues: torch.Tensor, metrics: Dict[str, float]) -> None:\n        # Calculate variances\n        orig_var = torch.var(original_grad).item()\n        proj_var = torch.var(projected_grad).item()\n        var_reduction = 1.0 - (proj_var / orig_var) if orig_var > 0 else 0.0\n        \n        # Calculate cosine similarity\n        cosine = torch.nn.functional.cosine_similarity(\n            original_grad.view(1, -1), projected_grad.view(1, -1)\n        ).item()\n        \n        # Update metrics\n        self.metrics['orig_var'].append(orig_var)\n        self.metrics['proj_var'].append(proj_var)\n        self.metrics['var_reduction'].append(var_reduction)\n        self.metrics['eigenvalues'].append(eigenvalues[:10].detach().cpu().numpy())\n        self.metrics['cosine_similarity'].append(cosine)\n        \n        # Update other metrics from provided dict\n        for key, value in metrics.items():\n            if key in self.metrics:\n                self.metrics[key].append(value)\n                \n        self.step += 1\n        \n        # Periodically save plots and CSV\n        if self.step % 100 == 0:\n            self.save_artifacts()\n            \n    def save_artifacts(self) -> None:\n        # Save plots and CSV to log directory\n        self.plot_variance_reduction(save_path=os.path.join(\n            self.log_dir, self.experiment_name, f\"variance_reduction_{self.step}.png\"))\n        self.plot_eigenvalue_spectrum(save_path=os.path.join(\n            self.log_dir, self.experiment_name, f\"eigenvalue_spectrum_{self.step}.png\"))\n        self.plot_convergence(save_path=os.path.join(\n            self.log_dir, self.experiment_name, f\"convergence_{self.step}.png\"))\n        self.export_csv(save_path=os.path.join(\n            self.log_dir, self.experiment_name, f\"metrics_{self.step}.csv\"))\n```",
+        "testStrategy": "1. Test variance calculation with synthetic gradients\n2. Verify variance reduction percentage calculation\n3. Test plotting functions with mock data\n4. Verify CSV export format and content\n5. Test automatic artifact saving\n6. Verify dashboard generation\n7. Integration test with NSPO2 engine to ensure metrics are correctly tracked during training",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Implement Auto Strategy Selector",
+        "description": "Create the AutoStrategySelector module that automatically selects and switches between strategies (Noise-Aware, Knowledge-Preserving, Hybrid) based on task characteristics, training stage, and performance metrics.",
+        "details": "1. Implement `AutoStrategySelector` class with the following functionality:\n   - Task-specific presets for different domains (RL, LLM, etc.)\n   - Training stage detection (early, middle, late)\n   - Heuristic switching based on performance metrics\n   - Methods:\n     - `update(metrics: Dict[str, float], step: int, total_steps: int) -> None`\n     - `select_strategy() -> str`: Return current best strategy\n     - `get_strategy_history() -> List[str]`: Return history of selected strategies\n\n2. Implement training stage detection:\n   - Early stage: first 10-20% of training\n   - Middle stage: 20-70% of training\n   - Late stage: last 30% of training\n\n3. Implement heuristic rules:\n   - Early stage: prefer Noise-Aware for faster initial convergence\n   - Middle stage: use Hybrid for balanced approach\n   - Late stage: prefer Knowledge-Preserving to maintain quality\n   - Override based on performance metrics\n\n4. Add task-specific presets:\n   - RL: Noise-Aware default\n   - LLM: Knowledge-Preserving default\n   - General: Hybrid default\n\nCode example:\n```python\nclass AutoStrategySelector:\n    def __init__(self, task_type: str = 'general', \n                 early_stage_pct: float = 0.2,\n                 late_stage_pct: float = 0.7):\n        self.task_type = task_type\n        self.early_stage_pct = early_stage_pct\n        self.late_stage_pct = late_stage_pct\n        self.current_strategy = self._get_default_strategy()\n        self.strategy_history = []\n        self.metrics_history = []\n        \n    def _get_default_strategy(self) -> str:\n        if self.task_type.lower() == 'rl':\n            return 'noise'  # Noise-Aware\n        elif self.task_type.lower() == 'llm':\n            return 'keep'   # Knowledge-Preserving\n        else:\n            return 'hybrid' # Hybrid\n            \n    def _get_stage(self, step: int, total_steps: int) -> str:\n        progress = step / total_steps\n        if progress < self.early_stage_pct:\n            return 'early'\n        elif progress > self.late_stage_pct:\n            return 'late'\n        else:\n            return 'middle'\n            \n    def update(self, metrics: Dict[str, float], step: int, total_steps: int) -> None:\n        # Store metrics\n        self.metrics_history.append(metrics)\n        if len(self.metrics_history) > 100:\n            self.metrics_history.pop(0)\n            \n        # Determine current stage\n        stage = self._get_stage(step, total_steps)\n        \n        # Apply heuristic rules to select strategy\n        new_strategy = self._select_strategy_for_stage(stage)\n        \n        # Override based on performance metrics if needed\n        new_strategy = self._override_strategy_based_on_metrics(new_strategy, metrics)\n        \n        # Update current strategy if changed\n        if new_strategy != self.current_strategy:\n            self.current_strategy = new_strategy\n            self.strategy_history.append((step, new_strategy))\n            \n    def _select_strategy_for_stage(self, stage: str) -> str:\n        if stage == 'early':\n            return 'noise'  # Prefer Noise-Aware for early stage\n        elif stage == 'late':\n            return 'keep'   # Prefer Knowledge-Preserving for late stage\n        else:\n            return 'hybrid' # Use Hybrid for middle stage\n            \n    def _override_strategy_based_on_metrics(self, strategy: str, metrics: Dict[str, float]) -> str:\n        # Apply override rules based on performance metrics\n        # Implementation details...\n        return strategy\n        \n    def select_strategy(self) -> str:\n        return self.current_strategy\n```",
+        "testStrategy": "1. Test default strategy selection for different task types\n2. Verify training stage detection with various step/total_steps combinations\n3. Test heuristic rules for each stage\n4. Verify strategy override based on mock performance metrics\n5. Test strategy history tracking\n6. Verify smooth transitions between strategies\n7. Integration test with NSPO2 engine to ensure strategy selection adapts during training",
+        "priority": "low",
+        "dependencies": [
+          1,
+          4,
+          7
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Implement NSPO2 Integration with Optimizer and Training Loop",
+        "description": "Create the OptimizerWrapper and training loop hooks that allow NSPO2 to be easily integrated with existing GRPO, PPO, or other training frameworks as a drop-in replacement with minimal code changes.",
+        "details": "1. Implement `NSPO2OptimizerWrapper` class that wraps existing optimizers:\n   - Intercept gradients before optimizer step\n   - Apply NSPO2 projection\n   - Forward to wrapped optimizer\n   - Methods:\n     - `__init__(self, optimizer: torch.optim.Optimizer, nspo2: NSPO2)`\n     - `step(self, closure: Optional[Callable] = None) -> Optional[float]`\n     - `zero_grad(self, set_to_none: bool = False) -> None`\n     - Other optimizer methods (state_dict, load_state_dict, etc.)\n\n2. Implement training loop hooks:\n   - Minibatch hook for collecting gradients\n   - Step-end hook for updating metrics\n   - Epoch-end hook for visualization\n\n3. Create example integration with common frameworks:\n   - GRPO integration example\n   - PPO integration example\n   - Generic trainer integration\n\n4. Add support for mixed precision and distributed data parallel (DDP)\n\nCode example:\n```python\nclass NSPO2OptimizerWrapper(torch.optim.Optimizer):\n    def __init__(self, optimizer: torch.optim.Optimizer, nspo2: NSPO2):\n        self.optimizer = optimizer\n        self.nspo2 = nspo2\n        self.param_groups = optimizer.param_groups\n        self._step_count = 0\n        \n    def step(self, closure: Optional[Callable] = None) -> Optional[float]:\n        loss = None\n        if closure is not None:\n            loss = closure()\n            \n        # Apply NSPO2 projection to gradients\n        for group in self.param_groups:\n            for p in group['params']:\n                if p.grad is not None:\n                    # Apply projection\n                    p.grad.data = self.nspo2.hook(p.grad.data)\n                    \n        # Call wrapped optimizer's step\n        self.optimizer.step()\n        \n        # Update NSPO2 metrics\n        metrics = {'step': self._step_count}\n        self.nspo2.step_end(metrics)\n        \n        self._step_count += 1\n        return loss\n        \n    def zero_grad(self, set_to_none: bool = False) -> None:\n        self.optimizer.zero_grad(set_to_none=set_to_none)\n        \n    def state_dict(self) -> Dict:\n        return {\n            'optimizer': self.optimizer.state_dict(),\n            'nspo2': self.nspo2.state_dict(),\n            'step_count': self._step_count\n        }\n        \n    def load_state_dict(self, state_dict: Dict) -> None:\n        self.optimizer.load_state_dict(state_dict['optimizer'])\n        self.nspo2.load_state_dict(state_dict['nspo2'])\n        self._step_count = state_dict['step_count']\n\n# Example usage with GRPO\ndef create_nspo2_optimizer(model, config):\n    # Create base optimizer\n    base_optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)\n    \n    # Create NSPO2 instance\n    nspo2_config = NSPO2Config(\n        dim=sum(p.numel() for p in model.parameters() if p.requires_grad),\n        strategy='hybrid',\n        projection_rank=16,\n        update_freq=10,\n        trust_radius=0.1,\n        target_bias=0.05,\n        max_rank=32,\n        min_rank=0,\n        epsilon=1e-6,\n        seed=42\n    )\n    nspo2 = NSPO2(nspo2_config)\n    \n    # Wrap optimizer\n    return NSPO2OptimizerWrapper(base_optimizer, nspo2)\n```",
+        "testStrategy": "1. Test optimizer wrapper with simple model and synthetic data\n2. Verify gradient projection is correctly applied\n3. Test state_dict and load_state_dict functionality\n4. Verify training loop hooks with mock training loop\n5. Test integration with GRPO and PPO frameworks\n6. Verify mixed precision compatibility\n7. Test distributed data parallel (DDP) compatibility\n8. End-to-end test on simple RL environment (e.g., CartPole) to verify performance improvements",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement NSPO2OptimizerWrapper Class",
+            "description": "Create the core OptimizerWrapper class that intercepts gradients, applies NSPO2 projection, and forwards to the wrapped optimizer while maintaining all required optimizer functionality.",
+            "dependencies": [],
+            "details": "- Implement `__init__` method that takes optimizer and nspo2 instance\n- Create `step` method that intercepts gradients, applies projection, and calls wrapped optimizer\n- Implement `zero_grad` method that forwards to wrapped optimizer\n- Add state management methods (`state_dict`, `load_state_dict`)\n- Implement property forwarding for param_groups and other optimizer attributes\n- Add proper type hints and docstrings\n- Ensure all optimizer methods are properly wrapped or forwarded",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement Training Loop Hooks",
+            "description": "Create hooks for different stages of the training loop to collect gradients, update metrics, and provide visualization capabilities for NSPO2.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "- Implement minibatch hook for collecting gradients before projection\n- Create step-end hook for updating metrics after each optimization step\n- Develop epoch-end hook for visualization and logging\n- Add support for custom metrics collection\n- Implement callback mechanism for external monitoring\n- Create helper functions to easily attach hooks to existing training loops",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create Framework Integration Examples",
+            "description": "Develop example integrations with common training frameworks to demonstrate how NSPO2 can be used as a drop-in replacement with minimal code changes.",
+            "dependencies": [
+              "10.1",
+              "10.2"
+            ],
+            "details": "- Create GRPO integration example with complete code\n- Implement PPO integration example showing policy and value network optimization\n- Develop generic trainer integration example\n- Add documentation for each integration example\n- Include before/after code comparisons to highlight minimal changes needed\n- Create utility functions to simplify integration",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Add Mixed Precision Support",
+            "description": "Extend the OptimizerWrapper to support mixed precision training with automatic mixed precision (AMP) and manual mixed precision approaches.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "- Implement gradient scaling compatibility in optimizer wrapper\n- Add support for torch.cuda.amp.GradScaler integration\n- Handle fp16/bf16 gradient types in projection operations\n- Create examples showing mixed precision usage\n- Test performance with and without mixed precision\n- Document best practices for mixed precision with NSPO2\n- Ensure numerical stability with low precision operations",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Implement Distributed Data Parallel Support",
+            "description": "Add support for distributed training scenarios using DistributedDataParallel (DDP) and ensure NSPO2 works correctly with gradient synchronization.",
+            "dependencies": [
+              "10.1",
+              "10.4"
+            ],
+            "details": "- Handle DDP gradient synchronization timing\n- Implement proper state synchronization across processes\n- Add support for gradient accumulation with DDP\n- Create DDP-specific hooks for training loops\n- Test with multiple GPUs and nodes\n- Document DDP integration patterns\n- Handle edge cases like gradient all-reduce and bucketing",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-16T09:19:46.829Z",
+      "updated": "2025-08-16T10:35:23.257Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

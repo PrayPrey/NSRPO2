@@ -57,15 +57,31 @@ class NSPO2OptimizerWrapper:
         
         # Apply NSPO2 projection to all gradients
         with torch.no_grad():
+            # Collect all gradients
+            all_grads = []
+            grad_shapes = []
+            params_with_grad = []
+            
             for group in self.optimizer.param_groups:
                 for param in group['params']:
                     if param.grad is not None:
-                        # Apply NSPO2 projection
-                        original_grad = param.grad.clone()
-                        projected_grad = self.nspo2.hook(param.grad)
-                        
-                        # Replace gradient
-                        param.grad.copy_(projected_grad)
+                        all_grads.append(param.grad.view(-1))
+                        grad_shapes.append(param.grad.shape)
+                        params_with_grad.append(param)
+            
+            if all_grads:
+                # Concatenate all gradients
+                concatenated_grad = torch.cat(all_grads)
+                
+                # Apply NSPO2 projection
+                projected_grad = self.nspo2.hook(concatenated_grad)
+                
+                # Split back and update parameters
+                start_idx = 0
+                for param, shape in zip(params_with_grad, grad_shapes):
+                    numel = param.grad.numel()
+                    param.grad.copy_(projected_grad[start_idx:start_idx + numel].view(shape))
+                    start_idx += numel
         
         # Call original optimizer step
         loss = self._original_step(closure)
@@ -135,7 +151,8 @@ def create_nspo2_optimizer(
     model_parameters,
     optimizer_class: type,
     optimizer_kwargs: Dict[str, Any],
-    nspo2_config: NSPO2Config
+    nspo2_config: Optional[NSPO2Config] = None,
+    auto_dim: bool = True
 ) -> NSPO2OptimizerWrapper:
     """Convenience function to create NSPO2-wrapped optimizer.
     
@@ -143,7 +160,8 @@ def create_nspo2_optimizer(
         model_parameters: Model parameters to optimize
         optimizer_class: Optimizer class (e.g., torch.optim.Adam)
         optimizer_kwargs: Keyword arguments for optimizer
-        nspo2_config: NSPO2 configuration
+        nspo2_config: NSPO2 configuration (if None and auto_dim=True, will auto-calculate dimension)
+        auto_dim: If True and nspo2_config is None, automatically calculate dimension
         
     Returns:
         NSPO2OptimizerWrapper instance
@@ -153,6 +171,14 @@ def create_nspo2_optimizer(
         >>> from nspo2 import create_nspo2_optimizer, get_default_config
         >>> 
         >>> model = MyModel()
+        >>> # Option 1: Auto-calculate dimension
+        >>> optimizer = create_nspo2_optimizer(
+        ...     model.parameters(),
+        ...     optim.Adam,
+        ...     {'lr': 1e-3}
+        ... )
+        >>> 
+        >>> # Option 2: Manual configuration
         >>> config = get_default_config(dim=model.num_parameters())
         >>> optimizer = create_nspo2_optimizer(
         ...     model.parameters(),
@@ -161,5 +187,17 @@ def create_nspo2_optimizer(
         ...     config
         ... )
     """
+    # Convert parameters to list if it's a generator
+    if not isinstance(model_parameters, list):
+        model_parameters = list(model_parameters)
+    
+    # Auto-calculate dimension if needed
+    if nspo2_config is None and auto_dim:
+        from .config import get_default_config
+        total_dim = sum(p.numel() for p in model_parameters if p.requires_grad)
+        nspo2_config = get_default_config(dim=total_dim)
+    elif nspo2_config is None:
+        raise ValueError("nspo2_config must be provided if auto_dim=False")
+    
     base_optimizer = optimizer_class(model_parameters, **optimizer_kwargs)
     return NSPO2OptimizerWrapper(base_optimizer, nspo2_config)

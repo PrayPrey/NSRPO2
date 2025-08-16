@@ -17,8 +17,8 @@ A production-ready PyTorch module for variance reduction in policy gradient and 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/nspo2.git
-cd nspo2
+git clone https://github.com/PrayPrey/NSRPO2.git
+cd NSRPO2
 
 # Install dependencies
 pip install torch numpy
@@ -179,7 +179,7 @@ If you use NSPO2 in your research, please cite:
 @software{nspo2,
   title = {NSPO2: Null Space Preference Optimization v2},
   year = {2024},
-  url = {https://github.com/yourusername/nspo2}
+  url = {https://github.com/PrayPrey/NSRPO2}
 }
 ```
 
